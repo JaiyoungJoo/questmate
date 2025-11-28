@@ -1,6 +1,7 @@
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
-// Lottie 애니메이션 파일을 추가하면 주석 해제
-// import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 import '../providers/quest_provider.dart';
 
@@ -13,27 +14,27 @@ class CharacterScreen extends StatefulWidget {
 
 class _CharacterScreenState extends State<CharacterScreen>
     with TickerProviderStateMixin {
-  late AnimationController _idleController;
-  late AnimationController _celebrationController;
   String _currentAnimation = 'idle';
+
+  // 스프라이트 시트 설정 (필요에 따라 값 수정)
+  static const int _frameCount = 8;
+  static const double? _frameWidth = null; // null이면 이미지 폭/프레임수 자동 계산
+  static const double? _frameHeight = null; // null이면 이미지 전체 높이 사용
+  static const double _fps = 12;
+
+  // 기본적으로 하나의 스프라이트 시트를 사용.
+  // 필요하면 다른 파일명으로 교체해도 됨.
+  static const String _idleSpritePath =
+      'assets/animations/character_sprite.png';
+  static const String _celebrationSpritePath =
+      'assets/animations/character_sprite.png';
 
   @override
   void initState() {
     super.initState();
-    _idleController = AnimationController(vsync: this);
-    _celebrationController = AnimationController(vsync: this);
-    
-    // 완료율에 따라 애니메이션 변경을 위한 리스너
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateAnimation();
     });
-  }
-
-  @override
-  void dispose() {
-    _idleController.dispose();
-    _celebrationController.dispose();
-    super.dispose();
   }
 
   void _updateAnimation() {
@@ -201,64 +202,17 @@ class _CharacterScreenState extends State<CharacterScreen>
   }
 
   Widget _buildCharacterAnimation() {
-    // Lottie 애니메이션을 사용하는 경우
-    // assets 폴더에 lottie 파일이 있어야 함
-    
-    // 임시로 간단한 애니메이션 위젯 사용
-    // 실제로는 Lottie.asset('assets/animations/character_idle.json') 사용
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        // Lottie 파일이 없을 경우를 대비한 플레이스홀더
-        Icon(
-          Icons.sentiment_satisfied_alt,
-          size: 120,
-          color: Colors.indigo[300],
-        ),
-        const SizedBox(height: 16),
-        Text(
-          '캐릭터 애니메이션',
-          style: TextStyle(
-            fontSize: 16,
-            color: Colors.grey[600],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Lottie 파일을 추가하면\n애니메이션이 표시됩니다',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[500],
-          ),
-        ),
-      ],
+    final spritePath = _currentAnimation == 'celebration'
+        ? _celebrationSpritePath
+        : _idleSpritePath;
+
+    return _SpriteAnimation(
+      spritePath: spritePath,
+      frameCount: _frameCount,
+      frameWidth: _frameWidth,
+      frameHeight: _frameHeight,
+      fps: _fps,
     );
-    
-    // Lottie 파일이 있는 경우 아래 코드 사용:
-    /*
-    if (_currentAnimation == 'idle') {
-      return Lottie.asset(
-        'assets/animations/character_idle.json',
-        controller: _idleController,
-        onLoaded: (composition) {
-          _idleController
-            ..duration = composition.duration
-            ..repeat();
-        },
-      );
-    } else {
-      return Lottie.asset(
-        'assets/animations/character_celebration.json',
-        controller: _celebrationController,
-        onLoaded: (composition) {
-          _celebrationController
-            ..duration = composition.duration
-            ..repeat();
-        },
-      );
-    }
-    */
   }
 
   int _calculateLevel(int completionRate) {
@@ -285,6 +239,165 @@ class _CharacterScreenState extends State<CharacterScreen>
   }
 }
 
+class _SpriteAnimation extends StatefulWidget {
+  final String spritePath;
+  final int frameCount;
+  final double? frameWidth;
+  final double? frameHeight;
+  final double fps;
+
+  const _SpriteAnimation({
+    required this.spritePath,
+    required this.frameCount,
+    required this.frameWidth,
+    required this.frameHeight,
+    required this.fps,
+  });
+
+  @override
+  State<_SpriteAnimation> createState() => _SpriteAnimationState();
+}
+
+class _SpriteAnimationState extends State<_SpriteAnimation>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  ui.Image? _image;
+  ImageStream? _imageStream;
+  ImageStreamListener? _imageListener;
+
+  @override
+  void initState() {
+    super.initState();
+    final animationDurationMs =
+        (1000 * widget.frameCount / widget.fps).round();
+    final int safeDurationMs =
+        math.max(1, math.min(60000, animationDurationMs));
+    _controller = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: safeDurationMs),
+    )..repeat();
+    _loadImage();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SpriteAnimation oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.spritePath != widget.spritePath) {
+      _loadImage(forceReload: true);
+    }
+  }
+
+  void _loadImage({bool forceReload = false}) {
+    if (_imageListener != null && _imageStream != null) {
+      _imageStream!.removeListener(_imageListener!);
+    }
+    if (forceReload) {
+      _image = null;
+    }
+
+    final stream =
+        AssetImage(widget.spritePath).resolve(const ImageConfiguration());
+    _imageListener = ImageStreamListener((imageInfo, _) {
+      setState(() {
+        _image = imageInfo.image;
+      });
+    }, onError: (dynamic _, __) {
+      // 에셋을 찾지 못했을 경우 무시하고 플레이스홀더 표시
+      setState(() {
+        _image = null;
+      });
+    });
+    stream.addListener(_imageListener!);
+    _imageStream = stream;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    if (_imageListener != null && _imageStream != null) {
+      _imageStream!.removeListener(_imageListener!);
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_image == null) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.image_not_supported, size: 48, color: Colors.grey[400]),
+          const SizedBox(height: 8),
+          Text(
+            '스프라이트 이미지를 추가하면\n애니메이션이 표시됩니다',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey[500], fontSize: 12),
+          ),
+        ],
+      );
+    }
+
+    final double frameWidth =
+        widget.frameWidth ?? (_image!.width / widget.frameCount);
+    final double frameHeight = widget.frameHeight ?? _image!.height.toDouble();
+
+    return SizedBox(
+      width: frameWidth,
+      height: frameHeight,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          final currentFrame =
+              ((_controller.value * widget.frameCount).floor()) %
+                  widget.frameCount;
+          return CustomPaint(
+            painter: _SpritePainter(
+              image: _image!,
+              frameCount: widget.frameCount,
+              frameWidth: frameWidth,
+              frameHeight: frameHeight,
+              currentFrame: currentFrame,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SpritePainter extends CustomPainter {
+  final ui.Image image;
+  final int frameCount;
+  final double frameWidth;
+  final double frameHeight;
+  final int currentFrame;
+
+  _SpritePainter({
+    required this.image,
+    required this.frameCount,
+    required this.frameWidth,
+    required this.frameHeight,
+    required this.currentFrame,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final src = Rect.fromLTWH(
+      frameWidth * currentFrame,
+      0,
+      frameWidth,
+      frameHeight,
+    );
+    final dst = Rect.fromLTWH(0, 0, size.width, size.height);
+    canvas.drawImageRect(image, src, dst, Paint());
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpritePainter oldDelegate) {
+    return oldDelegate.currentFrame != currentFrame ||
+        oldDelegate.image != image;
+  }
+}
 class _StatCard extends StatelessWidget {
   final IconData icon;
   final String value;
